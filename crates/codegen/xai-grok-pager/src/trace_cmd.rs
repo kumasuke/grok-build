@@ -413,6 +413,21 @@ async fn run_upload(
     json: bool,
     agent_config: &AgentConfig,
 ) -> Result<()> {
+    tracing::info!(
+        session_id = %session_id,
+        "trace_cmd: trace upload disabled by fork"
+    );
+    // Fall back to local export instead.
+    return run_export(
+        session_id,
+        output,
+        json,
+        agent_config,
+    )
+    .await;
+
+    #[allow(unreachable_code)]
+    {
     let session_dir = find_session_dir(session_id)?;
     if !json {
         eprintln!("Found session at: {}", session_dir.display());
@@ -521,6 +536,7 @@ async fn run_upload(
             };
             Err(attempt.handle_failure(&e))
         }
+    }
     }
 }
 

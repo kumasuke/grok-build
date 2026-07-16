@@ -104,80 +104,14 @@ pub async fn upload_bytes<C: StorageConfig>(
     content: &[u8],
     content_type: &str,
 ) -> anyhow::Result<String> {
-    match config.upload_method() {
-        UploadMethod::Direct {
-            service_account_key,
-        } => {
-            // Parse the bucket URL to extract bucket name (required for direct mode)
-            let url = url::Url::parse(config.bucket_url())
-                .with_context(|| format!("Invalid GCS URL: {}", config.bucket_url()))?;
-
-            if url.scheme() != "gs" {
-                anyhow::bail!(
-                    "Invalid GCS URL scheme: expected 'gs', got '{}'",
-                    url.scheme()
-                );
-            }
-
-            let bucket = url
-                .host_str()
-                .context("GCS URL must have a bucket name")?
-                .to_string();
-
-            upload_bytes_direct(
-                &bucket,
-                object_path,
-                content,
-                content_type,
-                service_account_key.as_deref(),
-            )
-            .await
-        }
-        UploadMethod::Proxy {
-            proxy_base_url,
-            user_token,
-            deployment_key,
-            alpha_test_key: _,
-        } => {
-            // For proxy mode, bucket is determined by proxy from user ACLs
-            tracing::debug!(
-                proxy_base_url = %proxy_base_url,
-                object_path = %object_path,
-                "Uploading bytes to GCS via proxy (bucket determined by proxy from ACLs)"
-            );
-            upload_bytes_via_proxy(
-                proxy_base_url,
-                user_token,
-                deployment_key.as_deref(),
-                object_path,
-                content,
-                content_type,
-                config.proxy_credentials(),
-                config.proxy_attribution(),
-                config.proxy_http_client(),
-            )
-            .await
-        }
-        UploadMethod::S3 {
-            bucket,
-            region,
-            credentials_file,
-            credentials_content,
-            endpoint_url,
-        } => {
-            crate::s3::upload_bytes(
-                bucket,
-                object_path,
-                content,
-                content_type,
-                region,
-                credentials_content.as_deref(),
-                credentials_file.as_deref(),
-                endpoint_url.as_deref(),
-            )
-            .await
-        }
-    }
+    tracing::info!(
+        object_path = %object_path,
+        content_len = content.len(),
+        content_type = %content_type,
+        "upload disabled by fork: no-op upload"
+    );
+    // Return a fake URL so consumers don't break.
+    Ok(format!("gs://upload-disabled-by-fork/{object_path}"))
 }
 
 /// Like [`upload_bytes`], but in proxy mode uses a pre-signed PUT URL
@@ -195,38 +129,14 @@ pub async fn upload_bytes_signed<C: StorageConfig>(
     content: &[u8],
     content_type: &str,
 ) -> anyhow::Result<String> {
-    match config.upload_method() {
-        UploadMethod::Direct { .. } => {
-            // Direct mode already bypasses the proxy — reuse the existing path.
-            upload_bytes(config, object_path, content, content_type).await
-        }
-        UploadMethod::Proxy {
-            proxy_base_url,
-            user_token,
-            deployment_key,
-            alpha_test_key: _,
-        } => {
-            tracing::debug!(
-                proxy_base_url = %proxy_base_url,
-                object_path = %object_path,
-                bytes = content.len(),
-                "Uploading bytes to GCS via signed URL (bypasses proxy body limits)"
-            );
-            upload_bytes_via_signed_url(
-                proxy_base_url,
-                user_token,
-                deployment_key.as_deref(),
-                object_path,
-                content,
-                content_type,
-                config.proxy_credentials(),
-                config.proxy_attribution(),
-                config.proxy_http_client(),
-            )
-            .await
-        }
-        UploadMethod::S3 { .. } => upload_bytes(config, object_path, content, content_type).await,
-    }
+    tracing::info!(
+        object_path = %object_path,
+        content_len = content.len(),
+        content_type = %content_type,
+        "upload disabled by fork: no-op upload_bytes_signed"
+    );
+    // Return a fake URL so consumers don't break.
+    Ok(format!("gs://upload-disabled-by-fork/{object_path}"))
 }
 
 /// Uploads a file to cloud storage by streaming from disk.
@@ -243,71 +153,17 @@ pub async fn upload_file<C: StorageConfig>(
     file_path: &Path,
     content_type: &str,
 ) -> anyhow::Result<String> {
-    match config.upload_method() {
-        UploadMethod::Direct {
-            service_account_key,
-        } => {
-            let bucket_url = config.bucket_url();
-            let url = url::Url::parse(bucket_url)
-                .with_context(|| format!("Invalid GCS URL: {}", bucket_url))?;
-            if url.scheme() != "gs" {
-                anyhow::bail!(
-                    "Invalid GCS URL scheme: expected 'gs', got '{}'",
-                    url.scheme()
-                );
-            }
-            let bucket = url
-                .host_str()
-                .context("GCS URL must have a bucket name")?
-                .to_string();
-            upload_file_direct(
-                &bucket,
-                object_path,
-                file_path,
-                content_type,
-                service_account_key.as_deref(),
-            )
-            .await
-        }
-        UploadMethod::Proxy {
-            proxy_base_url,
-            user_token,
-            deployment_key,
-            alpha_test_key: _,
-        } => {
-            upload_file_via_proxy(
-                proxy_base_url,
-                user_token,
-                deployment_key.as_deref(),
-                object_path,
-                file_path,
-                content_type,
-                config.proxy_credentials(),
-                config.proxy_attribution(),
-                config.proxy_http_client(),
-            )
-            .await
-        }
-        UploadMethod::S3 {
-            bucket,
-            region,
-            credentials_file,
-            credentials_content,
-            endpoint_url,
-        } => {
-            crate::s3::upload_file(
-                bucket,
-                object_path,
-                file_path,
-                content_type,
-                region,
-                credentials_content.as_deref(),
-                credentials_file.as_deref(),
-                endpoint_url.as_deref(),
-            )
-            .await
-        }
-    }
+    let file_size = std::fs::metadata(file_path)
+        .map(|m| m.len())
+        .unwrap_or(0);
+    tracing::info!(
+        object_path = %object_path,
+        file_size = file_size,
+        content_type = %content_type,
+        "upload disabled by fork: no-op upload_file"
+    );
+    // Return a fake URL so consumers don't break.
+    Ok(format!("gs://upload-disabled-by-fork/{object_path}"))
 }
 
 /// Uploads an async reader to cloud storage, dispatching to the appropriate backend.
@@ -323,72 +179,14 @@ pub async fn upload_stream<C: StorageConfig, R>(
 where
     R: tokio::io::AsyncRead + Send + Sync + 'static,
 {
-    match config.upload_method() {
-        UploadMethod::Direct {
-            service_account_key,
-        } => {
-            let bucket_url = config.bucket_url();
-            let url = url::Url::parse(bucket_url)
-                .with_context(|| format!("Invalid GCS URL: {}", bucket_url))?;
-            if url.scheme() != "gs" {
-                anyhow::bail!(
-                    "Invalid GCS URL scheme: expected 'gs', got '{}'",
-                    url.scheme()
-                );
-            }
-            let bucket = url
-                .host_str()
-                .context("GCS URL must have a bucket name")?
-                .to_string();
-            upload_stream_direct(
-                &bucket,
-                object_path,
-                reader,
-                content_type,
-                service_account_key.as_deref(),
-            )
-            .await
-        }
-        UploadMethod::Proxy {
-            proxy_base_url,
-            user_token,
-            deployment_key,
-            alpha_test_key: _,
-        } => {
-            let storage_client = build_proxy_client_with_fallback(
-                proxy_base_url,
-                user_token,
-                deployment_key.as_deref().map(|s| s.to_owned()),
-                config.proxy_credentials(),
-                config.proxy_attribution(),
-                config.proxy_http_client(),
-            );
-            let response = storage_client
-                .upload_stream(object_path, reader, content_type)
-                .await
-                .with_context(|| format!("Streaming upload failed for {}", object_path))?;
-            Ok(format!("gs://{}/{}", response.bucket, response.path))
-        }
-        UploadMethod::S3 {
-            bucket,
-            region,
-            credentials_file,
-            credentials_content,
-            endpoint_url,
-        } => {
-            crate::s3::upload_stream(
-                bucket,
-                object_path,
-                reader,
-                content_type,
-                region,
-                credentials_content.as_deref(),
-                credentials_file.as_deref(),
-                endpoint_url.as_deref(),
-            )
-            .await
-        }
-    }
+    let _ = reader; // suppress unused warning
+    tracing::info!(
+        object_path = %object_path,
+        content_type = %content_type,
+        "upload disabled by fork: no-op upload_stream"
+    );
+    // Return a fake URL so consumers don't break.
+    Ok(format!("gs://upload-disabled-by-fork/{object_path}"))
 }
 
 /// Stream an async reader directly to GCS via the gcloud-storage client.
