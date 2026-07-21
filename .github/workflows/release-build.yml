@@ -1,0 +1,95 @@
+# 目的: grok CLI (xai-grok-pager) を Linux / macOS / Windows 向けに release ビルドする
+# トリガー: 手動実行 (workflow_dispatch) のみ。自動ビルドは行わない
+# 主要な動作: protoc v29.3 インストール → cargo build --release → バイナリを Actions artifact (grok-<target>) としてアップロード
+# キャッシュ: Swatinem/rust-cache で cargo レジストリと target ディレクトリをキャッシュ
+# 注意: Public リポジトリのため Actions は無料。Windows ビルドは README 記載の通り best-effort（fail-fast: false で他 OS は完走）
+
+name: release-build
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  PROTOC_VERSION: "29.3"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            protoc_asset: protoc-29.3-linux-x86_64.zip
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            protoc_asset: protoc-29.3-osx-aarch_64.zip
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            protoc_asset: protoc-29.3-win64.zip
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install protoc (v29.3, same version as bin/protoc)
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/${{ matrix.protoc_asset }}"
+          curl -fsSL -o "$RUNNER_TEMP/protoc.zip" "$url"
+          unzip -oq "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            chmod +x "$RUNNER_TEMP/protoc/bin/protoc.exe"
+            protoc_path="$(cygpath -w "$RUNNER_TEMP/protoc/bin/protoc.exe")"
+          else
+            chmod +x "$RUNNER_TEMP/protoc/bin/protoc"
+            protoc_path="$RUNNER_TEMP/protoc/bin/protoc"
+          fi
+          echo "PROTOC=$protoc_path" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/protoc/bin/protoc" --version
+
+      - name: Install Rust toolchain (pinned by rust-toolchain.toml)
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup show
+          rustup target add "${{ matrix.target }}"
+
+      - name: Cache cargo registry / build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Build release binary
+        shell: bash
+        run: cargo build --locked --release --target "${{ matrix.target }}" -p xai-grok-pager-bin
+
+      - name: Stage artifact (rename to grok) and smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp "target/${{ matrix.target }}/release/xai-grok-pager.exe" dist/grok.exe
+            ./dist/grok.exe --version
+          else
+            cp "target/${{ matrix.target }}/release/xai-grok-pager" dist/grok
+            ./dist/grok --version
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: grok-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
