@@ -30,6 +30,23 @@ fn find_protoc_include_dir(protoc: Option<&Path>) -> Option<PathBuf> {
     }
 }
 
+fn parse_dependency_output(output: &str) -> anyhow::Result<Vec<&str>> {
+    let mut lines = output.lines();
+    let first_line = lines.next().context("protoc dependency output is empty")?;
+    // The target may contain a Windows drive-letter colon, so split on the
+    // colon followed by whitespace that separates the target from dependencies.
+    let (_, first_dependency) = first_line
+        .split_once(": ")
+        .context("protoc dependency output has no target separator")?;
+
+    Ok(iter::once(first_dependency)
+        .chain(lines)
+        .map(str::trim)
+        .map(|line| line.strip_suffix("\\").unwrap_or(line).trim_end())
+        .filter(|line| !line.is_empty())
+        .collect())
+}
+
 pub struct XaiProtoBuilder {
     builder: tonic_prost_build::Builder,
     file_descriptor_set_path: Option<PathBuf>,
@@ -114,10 +131,16 @@ impl XaiProtoBuilder {
 
         // Can only process one input file when using --dependency_out=FILE.
         for proto in protos {
+            let tempdir = tempfile::TempDir::new()?;
+            let dependency_path = tempdir.path().join("dependencies.d");
+            let descriptor_path = tempdir.path().join("descriptor.pb");
             let mut command = Command::new(protoc.unwrap_or(Path::new("protoc")));
             command
-                .arg("--dependency_out=/dev/stdout")
-                .arg("--descriptor_set_out=/dev/null");
+                .arg(format!("--dependency_out={}", dependency_path.display()))
+                .arg(format!(
+                    "--descriptor_set_out={}",
+                    descriptor_path.display()
+                ));
 
             // Add protoc's well-known types include directory first (if found).
             // This is needed for Bazel sandboxed builds where protoc and its
@@ -136,23 +159,22 @@ impl XaiProtoBuilder {
             command.arg(proto);
 
             command.stdin(Stdio::null());
+            command.stdout(Stdio::null());
             command.stderr(Stdio::inherit());
 
-            let output = command.output().context("protoc command failed")?;
-            if !output.status.success() {
+            let status = command.status().context("protoc command failed")?;
+            if !status.success() {
                 return Err(anyhow::anyhow!("protoc command failed"));
             }
 
-            let output =
-                String::from_utf8(output.stdout).context("protoc command output not UTF-8")?;
-
-            let mut lines = output.lines();
-            let first_line = lines.next().context("protoc command output is empty")?;
-            let prefix = "/dev/null:";
-            let rem = first_line.strip_prefix(prefix).with_context(|| {
-                format!("protoc command output must start with /dev/null: {output:?}")
+            let output = fs::read_to_string(&dependency_path).with_context(|| {
+                format!(
+                    "failed to read protoc dependency output {}",
+                    dependency_path.display()
+                )
             })?;
-            for line in iter::once(rem).chain(lines) {
+
+            for line in parse_dependency_output(&output)? {
                 let line = line.trim();
                 let line = line.strip_suffix("\\").unwrap_or(line);
                 // Depending on absolute paths like
@@ -286,5 +308,30 @@ pub fn configure() -> XaiProtoBuilder {
         pbjson_ignore_unknown_fields: false,
         pbjson_preserve_proto_field_names: false,
         file_descriptor_set_path: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_dependency_output;
+
+    #[test]
+    fn parses_unix_dependency_output() {
+        let output = "/tmp/descriptor.pb: proto/service.proto \\\n proto/common.proto\n";
+
+        assert_eq!(
+            parse_dependency_output(output).unwrap(),
+            ["proto/service.proto", "proto/common.proto"]
+        );
+    }
+
+    #[test]
+    fn parses_windows_dependency_output() {
+        let output = "D:\\Temp\\descriptor.pb: proto\\service.proto \\\r\n proto\\common.proto\r\n";
+
+        assert_eq!(
+            parse_dependency_output(output).unwrap(),
+            ["proto\\service.proto", "proto\\common.proto"]
+        );
     }
 }
