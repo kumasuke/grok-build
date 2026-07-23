@@ -72,7 +72,13 @@ jobs:
 
       - name: Build release binary
         shell: bash
-        run: cargo build --locked --release --target "${{ matrix.target }}" -p xai-grok-pager-bin
+        run: |
+          set -euo pipefail
+          # Windows: PDB のシンボル数上限で LNK4319 が出るため、PDB ページサイズを拡大する
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=/PDBPAGESIZE:16384"
+          fi
+          cargo build --locked --release --target "${{ matrix.target }}" -p xai-grok-pager-bin
 
       - name: Stage artifact (rename to grok) and smoke test
         shell: bash
