@@ -74,9 +74,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Windows: PDB のシンボル数上限で LNK4319 が出るため、PDB ページサイズを拡大する
+          # Windows: PDB のシンボル数上限で LNK4319 が出るため、PDB 生成自体を無効化する
+          # (/PDBPAGESIZE:16384 では不足だった。配布バイナリに PDB は不要)
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=/PDBPAGESIZE:16384"
+            export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=/DEBUG:NONE"
           fi
           cargo build --locked --release --target "${{ matrix.target }}" -p xai-grok-pager-bin
 
