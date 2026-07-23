@@ -18,6 +18,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # profile.release の incremental = true はローカル開発向け。CI は毎回クリーン環境
+  # なのでインクリメンタル情報の生成・保存はオーバーヘッドとキャッシュ肥大にしかならない
+  CARGO_INCREMENTAL: "0"
   PROTOC_VERSION: "29.3"
 
 jobs:
@@ -69,6 +72,9 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: release-${{ matrix.target }}
+          # ビルド失敗時もキャッシュを保存する。Why: 失敗が続くとキャッシュが一度も
+          # 作られず毎回フルビルド (Windows で 45 分) になる実害があった
+          cache-on-failure: true
 
       - name: Build release binary
         shell: bash
