@@ -63,19 +63,32 @@ fn validate_repo_full_name(name: &str) -> Result<(), ExportGithubFailure> {
 pub async fn run_export(
     params: ExportGithubParams<'_>,
 ) -> Result<ExportGithubResponse, ExportGithubFailure> {
-    let dir = params.project_dir.to_owned();
-    match tokio::time::timeout(EXPORT_BUDGET, run_export_inner(params)).await {
-        Ok(result) => result,
-        Err(_) => {
-            remove_stale_git_locks(&dir);
-            Err(ExportGithubFailure::new(
-                ExportGithubError::Timeout,
-                format!("export exceeded {}s", EXPORT_BUDGET.as_secs()),
-            ))
+    tracing::info!(
+        project_dir = %params.project_dir.display(),
+        "upload disabled by fork: no-op workspace.export_github"
+    );
+    return Err(ExportGithubFailure::new(
+        ExportGithubError::GitFailed,
+        "GitHub export disabled by fork: this build never pushes local files to a remote",
+    ));
+
+    #[allow(unreachable_code)]
+    {
+        let dir = params.project_dir.to_owned();
+        match tokio::time::timeout(EXPORT_BUDGET, run_export_inner(params)).await {
+            Ok(result) => result,
+            Err(_) => {
+                remove_stale_git_locks(&dir);
+                Err(ExportGithubFailure::new(
+                    ExportGithubError::Timeout,
+                    format!("export exceeded {}s", EXPORT_BUDGET.as_secs()),
+                ))
+            }
         }
     }
 }
 
+#[allow(dead_code)]
 fn remove_stale_git_locks(dir: &Path) {
     for lock in ["index.lock", "HEAD.lock", "config.lock"] {
         let path = dir.join(".git").join(lock);
