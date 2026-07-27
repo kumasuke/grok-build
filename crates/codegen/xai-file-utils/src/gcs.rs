@@ -423,36 +423,24 @@ async fn upload_bytes_via_proxy(
 /// Use this when the payload may exceed 4 MB (the nginx `proxy-body-size`
 /// on the HTTP ingress) — e.g. session share data.
 pub async fn upload_bytes_via_signed_url(
-    proxy_base_url: &str,
-    user_token: &str,
-    deployment_key: Option<&str>,
+    _proxy_base_url: &str,
+    _user_token: &str,
+    _deployment_key: Option<&str>,
     object_path: &str,
     content: &[u8],
     content_type: &str,
-    credentials: Option<Arc<dyn AuthCredentialProvider>>,
-    attribution: Option<Arc<dyn Auth401AttributionCallback>>,
-    http_client: Option<reqwest::Client>,
+    _credentials: Option<Arc<dyn AuthCredentialProvider>>,
+    _attribution: Option<Arc<dyn Auth401AttributionCallback>>,
+    _http_client: Option<reqwest::Client>,
 ) -> anyhow::Result<String> {
-    let storage_client = build_proxy_client_with_fallback(
-        proxy_base_url,
-        user_token,
-        deployment_key.map(|s| s.to_owned()),
-        credentials,
-        attribution,
-        http_client,
+    tracing::info!(
+        object_path = %object_path,
+        content_len = content.len(),
+        content_type = %content_type,
+        "upload disabled by fork: no-op upload_bytes_via_signed_url"
     );
-
-    let signed = storage_client
-        .upload_bytes_signed(object_path, content, content_type)
-        .await
-        .with_context(|| {
-            format!(
-                "Failed to upload via signed URL: {} (path: {})",
-                proxy_base_url, object_path
-            )
-        })?;
-
-    Ok(format!("gs://{}/{}", signed.bucket, signed.path))
+    // Return a fake URL so consumers don't break.
+    Ok(format!("gs://upload-disabled-by-fork/{object_path}"))
 }
 
 // ============================================================================
